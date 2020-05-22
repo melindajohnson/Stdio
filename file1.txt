@@ -1,0 +1,6 @@
+BEGINNING OF TEXT FILE
+System programming involves designing and writing 
+computer programs that allow the computer hardware to interface 
+with the programmer and the user, leading to the 
+effective execution of application software on the computer system.
+END OF TEXT FILE
