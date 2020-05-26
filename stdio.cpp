@@ -217,33 +217,19 @@ int feof(FILE *stream)
 int fpurge(FILE *stream)
 {
     if(stream == NULL) return EOF;
-    else
+    else {
         stream->pos = 0;
-    stream->buffer = NULL;
+        stream->actual_size = 0;
+        stream->buffer = NULL;
+    }
     return 0;
-}
-/**
- * Forces a write of all user-space buffered data for the given output
- * If the stream argument is NULL, fflush() flushes all open output streams.
- * @param stream
- * @return Upon successful completion 0 is returned.  Otherwise, EOF is returned
- */
-int fflush(FILE *stream)
-{
-    int bytes_written;
-    bytes_written = write(stream->fd,stream->buffer,stream->size);
-    if(bytes_written==-1) return EOF;
-    return bytes_written;
 }
 
 /**
- *
+ * Gets the next character (an unsigned char) from the specified stream and advances the position indicator for the stream.
  * @param stream
  * @return  Returns the character currently pointed by the internal file position indicator of the specified stream.
- * The internal file position indicator is then advanced to the next character.
- * If the stream is at the end-of-file when called, the function returns EOF and
- * sets the end-of-file indicator for the stream (feof).
- * If a read error occurs, the function returns EOF and sets the error indicator for the stream (ferror).
+ * If the stream is at the end-of-file when called, the function returns EOF
  */
 int fgetc(FILE *stream) {
     // if buffer was used in write mode previously, clear buffer
@@ -251,10 +237,10 @@ int fgetc(FILE *stream) {
         printf("clearing stream buffer by calling fpurge...\n");
         fpurge(stream);
     }
-    stream->lastop = 'r';
 
     if (stream->actual_size == 0 || stream->pos + 1 == stream->size) {
         stream->actual_size = read(stream->fd, stream->buffer, stream->size);
+        stream->lastop = 'r';
         stream->pos = 0;
     } else {
         stream->pos++;
@@ -269,8 +255,7 @@ int fgetc(FILE *stream) {
 /**
  * Reads characters from stream and stores them as a C string into str until (num-1) characters
  * have been read or either a newline or the end-of-file is reached, whichever happens first.
- * A newline character makes fgets stop reading, but it is considered a valid character by the
- * function and included in the string copied to str.
+ * A newline character makes fgets stop reading
  * A terminating null character is automatically appended after the characters copied to str.
  * @param str Pointer to an array of chars where the string read is copied.
  * @param size Maximum number of characters to be copied into str
@@ -279,12 +264,11 @@ int fgetc(FILE *stream) {
  */
 char *fgets(char *str, int size, FILE *stream)
 {
-   // printf ("position in the stream %d \n", stream->pos);
+
     if (stream->lastop == 'w') {
         printf("clearing stream buffer by calling fpurge...\n");
         fpurge(stream);
     }
-
     stream->lastop = 'r';
     int c;
     char *p;
@@ -294,18 +278,15 @@ char *fgets(char *str, int size, FILE *stream)
             stream->eof = true;
             break;
         }
-
         *p++ = c;
         if (c == '\n')
             break;
     }
     *p = 0;
-
     if (p == str || c == EOF)
         return NULL;
     return p;
 }
-
 
 /**
  * Reads an array of nmemb * size of bytes, from the stream and stores them in the block of memory specified by ptr.
@@ -318,56 +299,129 @@ char *fgets(char *str, int size, FILE *stream)
  * @return The total number of elements successfully read is returned.
  */
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-    // if buffer was used in write mode previously, clear buffer
+
+
     if (stream->lastop == 'w') {
         printf("clearing stream buffer by calling fpurge...\n");
         fpurge(stream);
     }
+    size_t bytesRead = 0;
+    size_t bufferSize = nmemb * size;
     stream->lastop = 'r';
-    size_t bufferSize = size * nmemb;
-    size_t bytes_read;
+    int c;
+    unsigned char* buffPtr = static_cast<unsigned char*>(ptr);
+    /* get max bytes or upto a newline */
 
-    stream->actual_size = read(stream->fd, ptr, bufferSize);
+    while(bytesRead < bufferSize){
+      //  printf("bytesRead: %d, bufferSize: %d \n", bytesRead, bufferSize);
+        if ((c = fgetc (stream)) == EOF){
+            stream->eof = true;
+            //printf( "IN EOF EXIT\n" );
+            break;
+        }
+        bytesRead++;
+        *buffPtr++ = c;
+        if (c == '\n'){
+            break;
+        }
 
-    if (stream->actual_size <= 0) {
-        stream->eof = true;
-        return EOF;
     }
-    bytes_read = stream->actual_size;
-//
-//    size_t bufferSize = size * nmemb;
-//    char *p = static_cast<char *>(ptr);
-//    size_t i;
-//    for(i = 0; i < bufferSize; i++) {
-//        int c = fgetc(stream);
-//        if (c == EOF) break;
-//        *p++ = c;
-//    }
-    return bytes_read / size;
+    *buffPtr = 0;
+    if (buffPtr == ptr || c == EOF)
+        return EOF;
+
+    return bytesRead;
 }
 
-size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+/**
+ * Forces a write of all user-space buffered data for the given output
+ * If the stream argument is NULL, fflush() flushes all open output streams.
+ * @param stream
+ * @return Upon successful completion 0 is returned.  Otherwise, EOF is returned
+ */
+int fflush(FILE *stream)
 {
-    // comlete it
-    return 0;
+    int bytes_written;
+    bytes_written = write(stream->fd,stream->buffer,BUFSIZ);
+    stream->pos = 0;
+    stream->actual_size = 0;
+    if(bytes_written==-1) return EOF;
+    else return 0;
 }
-
+/**
+ * Writes the C string pointed by str to the stream.
+ * @param c C string with the content to be written to stream.
+ * @param stream Pointer to a FILE object that identifies an output stream.
+ * @return On success, a non-negative value is returned.
+ * On error, the function returns EOF and sets the error indicator (ferror).
+ */
 int fputc(int c, FILE *stream)
 {
-    //the write operations (fwrite, fputc, fputs)
-    // need to add bytes to the buffer,
-    // and when it's full / you've advanced to the end,
-    // flush it to disk with write(), clear it out and start over
-    // complete it
+
+    if (stream->lastop == 'r') {
+        printf("clearing stream buffer by calling fpurge...\n");
+        fpurge(stream);
+    }
+
+    stream->lastop = 'w';
     char ch;
     ch = c;
-    write(stream->fd, &ch, 1);
-    return c;
+    if(stream->pos != stream->size){
+        stream->buffer[stream->pos++] = ch;
+    }
+
+    if(stream->pos == stream->size) {
+        fflush(stream);
+    }
+    return 0;
+}
+/**
+ *Writes an array of nmemb elements, each one with a size of size bytes,
+ * from the block of memory pointed by ptr to the current position in the stream.
+ * @param ptr Pointer to the array of elements to be written, converted to a const void*.
+ * @param size Size in bytes of each element to be written.
+ * @param nmemb Number of elements, each one with a size of size bytes.
+ * @param stream Pointer to a FILE object that specifies an output stream.
+ * @return The total number of elements successfully written is returned.
+ */
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    if (stream->lastop == 'r') {
+        printf("clearing stream buffer by calling fpurge...\n");
+        fpurge(stream);
+    }
+
+    size_t bytesRead = 0;
+    size_t bufferSize = nmemb * size;
+    stream->lastop = 'w';
+    const unsigned char* buffPtr = static_cast<const unsigned char*>(ptr);
+    /* get max bytes or upto a newline */
+    while(bytesRead < bufferSize) {
+        fputc(*buffPtr, stream);
+        buffPtr++;
+        bytesRead++;
+    }
+    return bytesRead;
 }
 
+/**
+ *Writes the C string pointed by str to the stream.
+ * @param str C string with the content to be written to stream.
+ * @param stream Pointer to a FILE object that identifies an output stream.
+ * @return On success, a non-negative value is returned.
+   On error, the function returns EOF and sets the error indicator
+ */
 int fputs(const char *str, FILE *stream)
 {
-    // complete it
+    if (stream->lastop == 'r') {
+        printf("clearing stream buffer by calling fpurge...\n");
+        fpurge(stream);
+    }
+    stream->lastop = 'w';
+    while(*str!='\0') {
+        fputc(*str, stream);
+        str++;
+    }
     return 0;
 }
 /**
@@ -394,10 +448,10 @@ On failure, EOF is returned.
 int fclose(FILE *stream)
 {
     // flush any unwritten output from the buffer to the file
-    fpurge(stream);
+    fflush(stream);
     // close stream
-    close(stream->fd);
+    int stat = close(stream->fd);
     // deallocate stream
     delete stream;
-    return 0;
+    return stat;
 }
